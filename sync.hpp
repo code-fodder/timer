@@ -124,20 +124,16 @@ namespace thread_sync
         /// the timer thread
         std::thread timer_thread;
         /// atomic bool used to stop the timer
-        std::atomic<bool> atomic_timer_running;
+        std::atomic<bool> timer_running;
+        /// condition var mutex
+        std::mutex mtx;
+        /// condition var used for waiting
+        std::condition_variable cv;
     public:
-        ///
         /// @brief Construct a new timer object
-        ///
-        timer() { ; }
-        ///
-        /// @brief Destroy the timer object
-        ///
-        ~timer()
-        {
-            // Make sure timer is stopped
-            stop();
-        }
+        timer() = default;
+        /// @brief Destroy the timer object - ensures the timer has stopped
+        ~timer() { stop(); }
 
         /// @brief Starts the timer
         /// @param timeout_ms the amount of time until the timer expires in milliseconds
@@ -146,36 +142,40 @@ namespace thread_sync
         void start(unsigned int timeout_ms, const Functor &timeout_handler, bool oneshot = true)
         {
             /// Start the
-            atomic_timer_running = true;
+            timer_running = true;
             timer_thread = std::thread([timeout_handler, timeout_ms, oneshot, this]()
             {
                 thread_sync::stopwatch sw;
-                uint64_t current_timeout_ms = static_cast<uint64_t>(timeout_ms);
-                while (atomic_timer_running)
+                uint64_t interval_ms = static_cast<uint64_t>(timeout_ms);
+                // Keep a running total of the time required time to wait
+                uint64_t total_time_ms = 0;
+                while (timer_running)
                 {
-                    /// @todo We could implement a condition_varable::wait_for(...) here instead of using a loop with a sleep.
-                    /// it would be a far nicer solution, but this does work perfectly well as is... so its a question of
-                    /// time/effort vs gain.
-                    while ((sw.get_elapsed_time() < current_timeout_ms) && atomic_timer_running)
-                    {
-                        // No point really in doing 1ms (or 0ms) since we can't guarantee much better then 10-15ms
-                        // precision on non-realtime system.
-                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                    }
+                    // increment the total time required to wait by the interval
+                    total_time_ms += interval_ms;
 
-                    // If the timer is running and we got here then we have timed out - call the handler
-                    if (atomic_timer_running)
+                    // Keep waiting until we have reached the elapsed time (in case of spurious wake)
+                    // or the timer is stopped
+                    while (sw.get_elapsed_time() < total_time_ms)
                     {
-                        // call the timeout handler - should this be called in a different thread?
-                        timeout_handler();
-
-                        // if oneshot - stop the timer
-                        if (oneshot)
+                        std::unique_lock<std::mutex> lock{mtx};
+                        // Re-calculate the time we need to wait for so that we are not losing time
+                        // returns true if timer was stopped, returns false if timer expired
+                        if (cv.wait_for(lock,
+                                std::chrono::milliseconds{total_time_ms - sw.get_elapsed_time()},
+                                [this]{return (bool) !timer_running;}))
                         {
+                            // timer stopped - finish
                             return;
                         }
-                        // Incremenet the timeout for the next period
-                        current_timeout_ms += timeout_ms;
+                    }
+                    // Call timeout handler
+                    timeout_handler();
+
+                    if (oneshot)
+                    {
+                        // if oneshot - stop the timer
+                        return;
                     }
                 }
             });
@@ -184,8 +184,11 @@ namespace thread_sync
         /// @brief Stops the timer - the callback will not be called.
         void stop()
         {
-            // Reset the flags
-            atomic_timer_running = false;
+            // Set the running flag to false so the timer does not continue
+            timer_running = false;
+            // wake the timer
+            cv.notify_all();
+            // Join the thread
             if (timer_thread.joinable())
             {
                 timer_thread.join();
