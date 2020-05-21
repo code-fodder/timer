@@ -1,0 +1,8 @@
+# make_utils
+analysis/
+docs/
+bin/
+lib/
+obj/
+dep/
+.build_prerequisites
