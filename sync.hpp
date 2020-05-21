@@ -1,4 +1,4 @@
-/// 
+///
 /// @copyright
 /// Copyright in this material is vested in TRL Technology Ltd. This material is
 /// issued in confidence for the purpose only for which it is supplied. It must
@@ -9,10 +9,10 @@
 /// shall be given orally or in writing or communicated in any manner whatsoever
 /// to any third party being an individual firm or company or any employee
 /// thereof without the prior consent in writing of TRL Technology Ltd.
-/// 
+///
 /// @file sync.hpp
 /// @brief threading/time synchronisation functions
-/// 
+///
 
 #ifndef _SYNC_H_
 #define _SYNC_H_
@@ -34,9 +34,9 @@
 // Macro to safely re-join a thread with guards
 //#define JOIN_THREAD(a_thread) {if (a_thread.joinable()) { a_thread.join(); }}
 
-/// 
+///
 /// @brief thread_sync namespace
-/// 
+///
 namespace thread_sync
 {
     /// @brief Collection of functionality to aid the use of std::thread
@@ -56,7 +56,7 @@ namespace thread_sync
             return false;
         }
     };
-    
+
     /// @brief Thread safe stopwatch class
     class stopwatch
     {
@@ -69,21 +69,21 @@ namespace thread_sync
         std::chrono::steady_clock::time_point m_split_time;
 
     public:
-        /// 
+        ///
         /// @brief Construct a new stopwatch object
-        /// 
+        ///
         stopwatch(){ restart(); }
-        /// 
+        ///
         /// @brief Destroy the stopwatch object
-        /// 
+        ///
         ~stopwatch(){;}
 
-        /// 
+        ///
         /// @brief Get the time stamp object
         /// @param file_path_friendly set true if you want the return string to be file-path friendly (i.e. not use chars that are not allowed in file paths)
         /// @return std::string a string representing a time in the format: "YY-MM-DD hh:mm:ss.mmm" where "mm" is minutes and "mmm" is millisecs"
         ///         if file_path_friendly is set then the formar is: "YY-MM-DD_hh_mm_ss" with no milliseconds
-        /// 
+        ///
         static std::string get_time_stamp(bool file_path_friendly = false);
 
         /// @brief Resets the stopwatches time flags to "now"
@@ -126,13 +126,13 @@ namespace thread_sync
         /// atomic bool used to stop the timer
         std::atomic<bool> atomic_timer_running;
     public:
-        /// 
+        ///
         /// @brief Construct a new timer object
-        /// 
+        ///
         timer() { ; }
-        /// 
+        ///
         /// @brief Destroy the timer object
-        /// 
+        ///
         ~timer()
         {
             // Make sure timer is stopped
@@ -141,28 +141,42 @@ namespace thread_sync
 
         /// @brief Starts the timer
         /// @param timeout_ms the amount of time until the timer expires in milliseconds
-        /// @param timeout_handler the function callback which is called if/when the timer expires        
+        /// @param timeout_handler the function callback which is called if/when the timer expires
         template <typename Functor>
-        void start(unsigned int timeout_ms, const Functor &timeout_handler)
+        void start(unsigned int timeout_ms, const Functor &timeout_handler, bool oneshot = true)
         {
-            /// Start the 
+            /// Start the
             atomic_timer_running = true;
-            timer_thread = std::thread([timeout_handler, timeout_ms, this](){
+            timer_thread = std::thread([timeout_handler, timeout_ms, oneshot, this]()
+            {
                 thread_sync::stopwatch sw;
-                /// @todo We could implement a condition_varable::wait_for(...) here instead of using a loop with a sleep.
-                /// it would be a far nicer solution, but this does work perfectly well as is... so its a question of 
-                /// time/effort vs gain.
-                while ((sw.get_elapsed_time() < static_cast<uint64_t>(timeout_ms)) && atomic_timer_running)
+                uint64_t current_timeout_ms = static_cast<uint64_t>(timeout_ms);
+                while (atomic_timer_running)
                 {
-                    // No point really in doing 1ms (or 0ms) since we can't guarantee much better then 10-15ms
-                    // precision on non-realtime system.
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                }
+                    /// @todo We could implement a condition_varable::wait_for(...) here instead of using a loop with a sleep.
+                    /// it would be a far nicer solution, but this does work perfectly well as is... so its a question of
+                    /// time/effort vs gain.
+                    while ((sw.get_elapsed_time() < current_timeout_ms) && atomic_timer_running)
+                    {
+                        // No point really in doing 1ms (or 0ms) since we can't guarantee much better then 10-15ms
+                        // precision on non-realtime system.
+                        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                    }
 
-                // If the timer is running and we got here then we have timed out - call the handler
-                if (atomic_timer_running)
-                {
-                    timeout_handler();
+                    // If the timer is running and we got here then we have timed out - call the handler
+                    if (atomic_timer_running)
+                    {
+                        // call the timeout handler - should this be called in a different thread?
+                        timeout_handler();
+
+                        // if oneshot - stop the timer
+                        if (oneshot)
+                        {
+                            return;
+                        }
+                        // Incremenet the timeout for the next period
+                        current_timeout_ms += timeout_ms;
+                    }
                 }
             });
         }
@@ -199,17 +213,17 @@ namespace thread_sync
         timer tmr;
 
     public:
-        /// 
+        ///
         /// @brief Construct a new gate object
-        /// 
+        ///
         gate() :
             gate_open(false),
             timed_out(false),
             sw()
         {;}
-        /// 
+        ///
         /// @brief Destroy the gate object
-        /// 
+        ///
         ~gate() { ; }
 
         /// @brief Set the gate_open flag and notifies other thread
