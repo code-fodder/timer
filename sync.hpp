@@ -149,13 +149,15 @@ namespace thread_sync
                 uint64_t interval_ms = static_cast<uint64_t>(timeout_ms);
                 // Keep a running total of the time required time to wait
                 uint64_t total_time_ms = 0;
+                // Keep running the timer until it is no longer running
                 while (timer_running)
                 {
                     // increment the total time required to wait by the interval
                     total_time_ms += interval_ms;
 
                     // Keep waiting until we have reached the elapsed time (in case of spurious wake)
-                    // or the timer is stopped
+                    // or the timer is stopped. Note the wait_for will handle timer_running = false
+                    // so we don't need to check that in this loop
                     while (sw.get_elapsed_time() < total_time_ms)
                     {
                         std::unique_lock<std::mutex> lock{mtx};
@@ -165,16 +167,16 @@ namespace thread_sync
                                 std::chrono::milliseconds{total_time_ms - sw.get_elapsed_time()},
                                 [this]{return (bool) !timer_running;}))
                         {
-                            // timer stopped - finish
+                            // timer stopped
                             return;
                         }
                     }
-                    // Call timeout handler
+                    // Timer expired - Call timeout handler
                     timeout_handler();
 
+                    // if oneshot - stop the timer
                     if (oneshot)
                     {
-                        // if oneshot - stop the timer
                         return;
                     }
                 }
