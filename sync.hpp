@@ -174,7 +174,7 @@ namespace thread_sync
                     // Timer expired - Call timeout handler
                     timeout_handler();
 
-                    // if oneshot - stop the timer
+                    // if oneshot stop the timer
                     if (oneshot)
                     {
                         return;
