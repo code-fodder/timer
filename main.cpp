@@ -5,23 +5,24 @@
 // but I have seen it up to 20-25ms and once I saw it at 40ms!
 const int64_t acceptable_error_ms = 50;
 
-// void test_function()
+// void timer_queue_test_fn()
 // {
 //     std::cout << "\t <TIMER_EVENT: 100ms>" << std::endl;
-//     SLEEP_MSEC(1000);
+//     SLEEP_MSEC(100);
 // }
 
-// bool test_timer_queue()
+// template <typename Functor>
+// bool test_timer_queue(const Functor &test_fn)
 // {
-//     thread_sync::timer_queue tmr_q(test_function);
+//     thread_sync::timer_queue<Functor> tmr_q(test_fn);
 //     tmr_q.add();
-//     SLEEP_MSEC(3000);
-//     tmr_q.add();
-//     tmr_q.add();
+//     SLEEP_MSEC(300);
 //     tmr_q.add();
 //     tmr_q.add();
 //     tmr_q.add();
-//     SLEEP_MSEC(5000);
+//     tmr_q.add();
+//     tmr_q.add();
+//     SLEEP_MSEC(500);
 //     return true;
 // }
 
@@ -174,7 +175,8 @@ bool test_gate()
 
 int main()
 {
-    // if (!test_timer_queue())
+    // // Run the timer queue tests
+    // if (!test_timer_queue([]{timer_queue_test_fn();}))
     // {
     //     return 1;
     // }

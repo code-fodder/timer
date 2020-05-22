@@ -97,83 +97,73 @@ public:
     }
 };
 
-template <typename Functor>
-class timer_queue
-{
-public:
-    thread_sync::stopwatch m_sw;
-
-    timer_queue(const Functor &handler) : m_handler(handler)
-    {
-        m_q_thread = std::thread([this]
-        {
-            m_running = true;
-            while (m_running)
-            {
-                wait();
-                while (m_count > 0)
-                {
-                    --m_count;
-                    std::cout << "TMRQ: --m_count: " << m_count << " at: " << m_sw.get_elapsed_time() << "ms";
-                    m_handler();
-                }
-            }
-        });
-    }
-
-    ~timer_queue()
-    {
-        stop();
-        std::cout << "TMRQ: destroyed\n";
-    }
-
-    // Add item to queue and then notify the thread
-    void add()
-    {
-        ++m_count;
-        std::cout << "TMRQ: ++m_count: " << m_count << " at: " << m_sw.get_elapsed_time() << "ms" << std::endl;
-        m_cv.notify_one();
-    }
-
-    void stop(bool wait_for_queued_events = true)
-    {
-        std::cout << "TMRQ: stopping\n";
-        m_running = false;
-        // Clear the events if we are don't want to wait for them
-        if (!wait_for_queued_events)
-        {
-            m_count = 0;
-        }
-        m_cv.notify_one();
-        threading::join_thread(m_q_thread);
-        std::cout << "TMRQ: stopped\n";
-    }
-
-
-private:
-    void wait()
-    {
-        if (m_running)
-        {
-            std::cout << "TMRQ: waiting at: " << m_sw.get_elapsed_time() << "ms" << std::endl;
-            std::mutex mtx;
-            std::unique_lock<std::mutex> lk(mtx);
-            m_cv.wait(lk);
-            std::cout << "TMRQ: done at: " << m_sw.get_elapsed_time() << "ms" << std::endl;
-        }
-    }
-
-    std::condition_variable m_cv;
-    std::thread m_q_thread;
-    std::atomic<int> m_count{0};
-    std::atomic<bool> m_running {false};
-    std::function<void()> m_handler;
-};
-
 /// @brief timer class to call a callback function after a specified amount of time has expired
 class timer
 {
 private:
+    template <typename Functor>
+    class timer_queue
+    {
+    public:
+        timer_queue(const Functor &handler) : m_handler(handler)
+        {
+            m_q_thread = std::thread([this]
+            {
+                m_running = true;
+                while (m_running)
+                {
+                    wait();
+                    while (m_count > 0)
+                    {
+                        --m_count;
+                        m_handler();
+                    }
+                }
+            });
+        }
+
+        ~timer_queue()
+        {
+            stop();
+        }
+
+        // Add item to queue and then notify the thread
+        void add()
+        {
+            ++m_count;
+            m_cv.notify_one();
+        }
+
+        void stop(bool wait_for_queued_events = true)
+        {
+            m_running = false;
+            // Clear the events if we are don't want to wait for them
+            if (!wait_for_queued_events)
+            {
+                m_count = 0;
+            }
+            m_cv.notify_one();
+            threading::join_thread(m_q_thread);
+        }
+
+    private:
+        void wait()
+        {
+            if (m_running)
+            {
+                std::mutex mtx;
+                std::unique_lock<std::mutex> lk(mtx);
+                m_cv.wait(lk);
+            }
+        }
+
+        std::condition_variable m_cv;
+        std::thread m_q_thread;
+        std::atomic<int> m_count{0};
+        std::atomic<bool> m_running {false};
+        std::function<void()> m_handler;
+    };
+
     /// the timer thread
     std::thread timer_thread;
     /// atomic bool used to stop the timer
@@ -199,18 +189,20 @@ public:
         timer_running = true;
         timer_thread = std::thread([timeout_handler, timeout_ms, oneshot, this]()
         {
+            // For keeping track of time
             stopwatch sw;
+            // Queues events and runs a thread to call the timeout handler repeatedly until the queue is empty
+            // frees the timer from being blocked running the handler
             timer_queue<Functor> m_timer_queue(timeout_handler);
+            // Timer interval
             uint64_t interval_ms = static_cast<uint64_t>(timeout_ms);
             // Keep a running total of the time required time to wait
             uint64_t total_time_ms = 0;
-            std::cout << "TMR: started at: " << sw.get_elapsed_time() << "ms" << std::endl;
             // Keep running the timer until it is no longer running
             while (timer_running)
             {
                 // increment the total time required to wait by the interval
                 total_time_ms += interval_ms;
-
                 // Keep waiting until we have reached the elapsed time (in case of spurious wake)
                 // or the timer is stopped. Note the wait_for will handle timer_running = false
                 // so we don't need to check that in this loop
@@ -225,33 +217,29 @@ public:
                                     std::chrono::milliseconds{total_time_ms - sw.get_elapsed_time()},
                                     [this] { return (bool)!timer_running; }))
                     {
-                        // timer stopped
-                        std::cout << "TMR: timer stopped by user at: " << sw.get_elapsed_time() << "ms" << std::endl;
+                        // timer stopped - force the queue to be emptied
+                        m_timer_queue.stop(true);
                         return;
                     }
                 }
-                // // Timer expired - Call timeout handler
-                // timeout_handler();
-
                 // Timer expired - queue a call to the handler
-                std::cout << "TMR: event at: " << sw.get_elapsed_time() << "ms" << std::endl;
                 m_timer_queue.add();
 
                 // if oneshot stop the timer
                 if (oneshot)
                 {
-                    std::cout << "TMR: one-shot finished at: " << sw.get_elapsed_time() << "ms" << std::endl;
+                    // Don't empty the queue - allow any queue handlers to run
                     return;
                 }
             }
-            std::cout << "TMR: exiting thread at: " << sw.get_elapsed_time() << "ms" << std::endl;
+            // for the queue to be emptied
+            m_timer_queue.stop(true);
         });
     }
 
     /// @brief Stops the timer - the callback will not be called.
     void stop()
     {
-        std::cout << "TMR: stopping" << std::endl;
         // Set the running flag to false so the timer does not continue
         timer_running = false;
         // wake the timer
@@ -261,7 +249,6 @@ public:
         {
             timer_thread.join();
         }
-        std::cout << "TMR: stopped" << std::endl;
     }
 };
 
@@ -284,26 +271,18 @@ private:
     timer tmr;
 
 public:
-    ///
     /// @brief Construct a new gate object
-    ///
-    gate() : gate_open(false),
-             timed_out(false),
-             sw()
-    {
-        ;
-    }
-    ///
-    /// @brief Destroy the gate object
-    ///
-    ~gate() { ; }
+    gate() :
+        gate_open(false),
+        timed_out(false),
+        sw()
+    { }
 
     /// @brief Set the gate_open flag and notifies other thread
     void open_gate()
     {
         std::lock_guard<std::mutex> lock(m);
         gate_open = true;
-        std::cout << "GATE: open_gate at: " << sw.get_elapsed_time() << "ms" << std::endl;
         sw.take_time_split();
         cv.notify_all();
     }
@@ -314,7 +293,6 @@ public:
         std::unique_lock<std::mutex> lock(m);
         gate_open = true;
         timed_out = true;
-        std::cout << "GATE: timeout at: " << sw.get_elapsed_time() << "ms" << std::endl;
         sw.take_time_split();
         cv.notify_all();
     }
@@ -328,7 +306,6 @@ public:
         timed_out = false;
         if (timeout_ms > 0)
         {
-            std::cout << "GATE: start timer at: " << sw.get_elapsed_time() << "ms" << std::endl;
             tmr.start(timeout_ms, [this]() { timeout_handler(); });
         }
 
@@ -336,11 +313,9 @@ public:
         // Restart the timer
         sw.restart();
         // Wait for the gate to be opened
-        std::cout << "GATE: wait at: " << sw.get_elapsed_time() << "ms" << std::endl;
         cv.wait(lock, [this] { return gate_open; });
         //    --- gate is open, wait is over ---
         // Stop timer
-        std::cout << "GATE: stop timer: " << sw.get_elapsed_time() << "ms" << std::endl;
         tmr.stop();
         // Now close the gate again for re-use
         gate_open = false;
