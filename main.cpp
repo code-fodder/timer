@@ -5,32 +5,12 @@
 // but I have seen it up to 20-25ms and once I saw it at 40ms!
 const int64_t acceptable_error_ms = 50;
 
-// void timer_queue_test_fn()
-// {
-//     std::cout << "\t <TIMER_EVENT: 100ms>" << std::endl;
-//     SLEEP_MSEC(100);
-// }
-
-// template <typename Functor>
-// bool test_timer_queue(const Functor &test_fn)
-// {
-//     thread_sync::timer_queue<Functor> tmr_q(test_fn);
-//     tmr_q.add();
-//     SLEEP_MSEC(300);
-//     tmr_q.add();
-//     tmr_q.add();
-//     tmr_q.add();
-//     tmr_q.add();
-//     tmr_q.add();
-//     SLEEP_MSEC(500);
-//     return true;
-// }
-
 class timer_test
 {
 public:
     void start(unsigned int time_ms, bool oneshot = true, unsigned int delay_ms = 0)
     {
+        m_count = 0;
         m_delay_ms = delay_ms;
         m_tmr.start(time_ms, [this]{tick();}, oneshot);
         m_sw.restart();
@@ -49,10 +29,11 @@ public:
 private:
     void tick()
     {
+        std::cout <<  "." << std::flush;
         SLEEP_MSEC(m_delay_ms);
-        std::cout << "." << std::flush;
     }
 
+    int m_count{0};
     thread_sync::timer m_tmr;
     thread_sync::stopwatch m_sw;
     unsigned int m_delay_ms;
@@ -108,6 +89,31 @@ bool test_timer()
     test.stop();
     std::cout << "\n\tstopped at: " << test.get_elapsed_time() << "ms" << std::endl;
     time_deviation_ms = static_cast<int64_t>(test.get_elapsed_time()) - time_test_value;
+    std::cout << "\tTime deviation: " << time_deviation_ms << "ms\n";
+    if (std::abs(time_deviation_ms) > acceptable_error_ms)
+    {
+        std::cout << "\tFAILED: timer lost too much time!\n";
+        return false;
+    }
+    else
+    {
+        std::cout << "\tPASSED: timer kept time within acceptable time margine\n";
+    }
+
+    std::cout << "\nContinuous timer with work taking longer then timer interval";
+    time_test_value = 4000;
+    test.start(1000, false,2000);
+    SLEEP_MSEC(time_test_value);
+    int64_t stop_time = static_cast<int64_t>(test.get_elapsed_time());
+    test.stop();
+    // When we ask the timer to stop the worker will have 1000ms left of work to do
+    // so we have to add that to our time deviation
+    time_deviation_ms = static_cast<int64_t>(test.get_elapsed_time()) - stop_time - 1000;
+    std::cout << "\n\tstoping at: " << stop_time << "ms" << std::endl;
+    std::cout << "\n\tstopped at: " << test.get_elapsed_time() << "ms" << std::endl;
+    // NOTE: Since worker is taking longer then the time interval the 200ms sleep errors in the worker
+    // are accumulating and the timer can't do much about it. So here we just test it can stop the timer
+    // in a timely manner.
     std::cout << "\tTime deviation: " << time_deviation_ms << "ms\n";
     if (std::abs(time_deviation_ms) > acceptable_error_ms)
     {
@@ -175,12 +181,6 @@ bool test_gate()
 
 int main()
 {
-    // // Run the timer queue tests
-    // if (!test_timer_queue([]{timer_queue_test_fn();}))
-    // {
-    //     return 1;
-    // }
-
     // Run timer tests
     if (!test_timer())
     {
@@ -192,7 +192,6 @@ int main()
     {
         return 1;
     }
-
 
     std::cout << "\n==========================\n";
     std::cout << "All tests complete\n";

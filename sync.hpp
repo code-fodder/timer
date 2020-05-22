@@ -124,6 +124,10 @@ private:
 
         ~timer_queue()
         {
+            // On normal destruct wait for all the queued events (this is the default)
+            // not sure if really want this, but a user of the class can always forcefully
+            // stop this with the stop() function to clear the queued events. Also this only
+            // occurs if the handler function is taking longer then the timer interval.
             stop();
         }
 
@@ -134,11 +138,11 @@ private:
             m_cv.notify_one();
         }
 
-        void stop(bool wait_for_queued_events = true)
+        void stop(bool clear_queued_events = true)
         {
             m_running = false;
-            // Clear the events if we are don't want to wait for them
-            if (!wait_for_queued_events)
+            // Clear the events if we dont want them
+            if (clear_queued_events)
             {
                 m_count = 0;
             }
@@ -217,8 +221,6 @@ public:
                                     std::chrono::milliseconds{total_time_ms - sw.get_elapsed_time()},
                                     [this] { return (bool)!timer_running; }))
                     {
-                        // timer stopped - force the queue to be emptied
-                        m_timer_queue.stop(true);
                         return;
                     }
                 }
@@ -228,12 +230,12 @@ public:
                 // if oneshot stop the timer
                 if (oneshot)
                 {
-                    // Don't empty the queue - allow any queue handlers to run
+                    // Don't clear any queued events, for oneshot there will only be one and we want to make sure
+                    // we don't clear it
+                    m_timer_queue.stop(false);
                     return;
                 }
             }
-            // for the queue to be emptied
-            m_timer_queue.stop(true);
         });
     }
 
