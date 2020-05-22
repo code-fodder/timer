@@ -5,23 +5,25 @@
 // but I have seen it up to 20-25ms and once I saw it at 40ms!
 const int64_t acceptable_error_ms = 50;
 
-void test_function()
-{
-    SLEEP_MSEC(500);
-    std::cout << "+" << std::flush;
-}
+// void test_function()
+// {
+//     std::cout << "\t <TIMER_EVENT: 100ms>" << std::endl;
+//     SLEEP_MSEC(1000);
+// }
 
-bool test_timer_queue()
-{
-    thread_sync::timer_queue tmr_q(test_function);
-    tmr_q.add();
-    SLEEP_MSEC(1000);
-    tmr_q.add();
-    tmr_q.add();
-    tmr_q.add();
-    SLEEP_MSEC(5000);
-    return true;
-}
+// bool test_timer_queue()
+// {
+//     thread_sync::timer_queue tmr_q(test_function);
+//     tmr_q.add();
+//     SLEEP_MSEC(3000);
+//     tmr_q.add();
+//     tmr_q.add();
+//     tmr_q.add();
+//     tmr_q.add();
+//     tmr_q.add();
+//     SLEEP_MSEC(5000);
+//     return true;
+// }
 
 class timer_test
 {
@@ -172,22 +174,22 @@ bool test_gate()
 
 int main()
 {
-    if (!test_timer_queue())
+    // if (!test_timer_queue())
+    // {
+    //     return 1;
+    // }
+
+    // Run timer tests
+    if (!test_timer())
     {
         return 1;
     }
 
-    // // Run timer tests
-    // if (!test_timer())
-    // {
-    //     return 1;
-    // }
-
-    // // Run gate test since it users timer
-    // if (!test_gate())
-    // {
-    //     return 1;
-    // }
+    // Run gate test since it users timer
+    if (!test_gate())
+    {
+        return 1;
+    }
 
 
     std::cout << "\n==========================\n";
