@@ -1,23 +1,13 @@
 ///
-/// @copyright
-/// Copyright in this material is vested in TRL Technology Ltd. This material is
-/// issued in confidence for the purpose only for which it is supplied. It must
-/// not be reproduced in whole or in part except with the consent of TRL
-/// Technology Ltd and then only on the condition that this notice is included in
-/// any reproduction. No information as to the contents or subject matter in
-/// this material or any part thereof arising directly or indirectly therefrom
-/// shall be given orally or in writing or communicated in any manner whatsoever
-/// to any third party being an individual firm or company or any employee
-/// thereof without the prior consent in writing of TRL Technology Ltd.
+/// @copyright AMD-Tech Ltd
 ///
 /// @file sync.hpp
-/// @brief threading/time synchronisation functions
-///
+/// @brief threading/time synchronisation functions. This is meant to be pure c++,
+/// please only include std libs.
 
 #ifndef _SYNC_H_
 #define _SYNC_H_
 
-// This is meant to be pure c++, please don't include any user-code headears
 #include <mutex>
 #include <condition_variable>
 #include <chrono>
@@ -31,12 +21,8 @@
 /// Convert seconds to milliseconds
 #define SECONDS_TO_MSEC(seconds) (seconds * 1000)
 
-// Macro to safely re-join a thread with guards
-//#define JOIN_THREAD(a_thread) {if (a_thread.joinable()) { a_thread.join(); }}
 
-///
 /// @brief thread_sync namespace
-///
 namespace thread_sync
 {
     /// @brief Collection of functionality to aid the use of std::thread
@@ -69,21 +55,15 @@ namespace thread_sync
         std::chrono::steady_clock::time_point m_split_time;
 
     public:
-        ///
         /// @brief Construct a new stopwatch object
-        ///
         stopwatch(){ restart(); }
-        ///
         /// @brief Destroy the stopwatch object
-        ///
         ~stopwatch(){;}
 
-        ///
         /// @brief Get the time stamp object
         /// @param file_path_friendly set true if you want the return string to be file-path friendly (i.e. not use chars that are not allowed in file paths)
         /// @return std::string a string representing a time in the format: "YY-MM-DD hh:mm:ss.mmm" where "mm" is minutes and "mmm" is millisecs"
         ///         if file_path_friendly is set then the formar is: "YY-MM-DD_hh_mm_ss" with no milliseconds
-        ///
         static std::string get_time_stamp(bool file_path_friendly = false);
 
         /// @brief Resets the stopwatches time flags to "now"
