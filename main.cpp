@@ -8,8 +8,9 @@ const int64_t acceptable_error_ms = 50;
 class timer_test
 {
 public:
-    void start(unsigned int time_ms, bool oneshot = true)
+    void start(unsigned int time_ms, bool oneshot = true, unsigned int delay_ms = 0)
     {
+        m_delay_ms = delay_ms;
         m_tmr.start(time_ms, [this]{tick();}, oneshot);
         m_sw.restart();
     }
@@ -27,11 +28,13 @@ public:
 private:
     void tick()
     {
+        SLEEP_MSEC(m_delay_ms);
         std::cout << "." << std::flush;
     }
 
     thread_sync::timer m_tmr;
     thread_sync::stopwatch m_sw;
+    unsigned int m_delay_ms;
 };
 
 bool test_timer()
@@ -77,9 +80,9 @@ bool test_timer()
         std::cout << "\tPASSED: timer stopped with acceptable time margine\n";
     }
 
-    std::cout << "\nContinuous timer loss of precision test over a longer time";
+    std::cout << "\nContinuous timer loss of precision test over a longer time while work takes some time";
     time_test_value = 5000;
-    test.start(100, false);
+    test.start(100, false, 10);
     SLEEP_MSEC(time_test_value);
     test.stop();
     std::cout << "\n\tstopped at: " << test.get_elapsed_time() << "ms" << std::endl;
@@ -151,11 +154,11 @@ bool test_gate()
 
 int main()
 {
-    // Run gate test since it users timer
-    if (!test_gate())
-    {
-        return 1;
-    }
+    // // Run gate test since it users timer
+    // if (!test_gate())
+    // {
+    //     return 1;
+    // }
 
     // Run timer tests
     if (!test_timer())
