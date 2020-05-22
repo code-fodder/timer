@@ -13,6 +13,8 @@
 #include <chrono>
 #include <atomic>
 #include <thread>
+#include <queue>
+#include <functional>
 
 /// Sleep for seconds
 #define SLEEP_SEC(secs) std::this_thread::sleep_for(std::chrono::seconds(secs))
@@ -92,6 +94,65 @@ public:
     uint64_t get_split_time() const
     {
         return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - m_split_time).count());
+    }
+};
+
+class timer_queue
+{
+public:
+    std::mutex m_mtx;
+    std::condition_variable m_cv;
+    std::thread m_q_thread;
+    std::atomic<int> m_count{0};
+    std::atomic<bool> m_running {false};
+    std::function<void()> m_handler;
+
+    timer_queue(std::function<void()> handler) : m_handler(handler) { start(); }
+    ~timer_queue() { stop(); }
+
+    // Add item to queue and then notify the thread
+    void add()
+    {
+        std::lock_guard<std::mutex> lk(m_mtx);
+        if (m_running)
+        {
+            ++m_count;
+            m_cv.notify_all();
+        }
+    }
+
+    // Process items until the queue is empty - called when an item is added
+    void start()
+    {
+        m_q_thread = std::thread([this]{
+            m_running = true;
+            while (m_running)
+            {
+                std::cout << "waiting\n";
+                std::unique_lock<std::mutex> lk(m_mtx);
+                if (m_count--)
+                {
+                   m_handler();
+                }
+                else
+                {
+                    m_cv.wait(lk);
+                }
+            }
+        });
+    }
+
+    // Clears the queue so that there is nothing waiting anymore
+    void stop()
+    {
+        std::cout << "stopping\n";
+        {
+            std::lock_guard<std::mutex> lk(m_mtx);
+            m_running = false;
+            m_count = 0;
+            m_cv.notify_all();
+        }
+        threading::join_thread(m_q_thread);
     }
 };
 
