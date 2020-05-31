@@ -97,81 +97,87 @@ public:
     }
 };
 
+
+template <typename Functor>
+class timer_queue
+{
+public:
+    timer_queue(const Functor &handler) : m_handler(handler) { }
+    ~timer_queue()
+    {
+        // On normal destruct wait for all the queued events (this is the default)
+        // not sure if really want this, but a user of the class can always forcefully
+        // stop this with the stop() function to clear the queued events. Also this only
+        // occurs if the handler function is taking longer then the timer interval.
+        stop();
+    }
+
+    // Add item to queue and then notify the thread
+    void add()
+    {
+        ++m_count;
+        m_cv.notify_one();
+    }
+
+    // Function that takes a parameter pack for any parameters that need to be passed to the
+    // timeout handler
+    template <typename ...Args>
+    void start(Args ...args)
+    {
+        m_q_thread = std::thread([this, args...]
+        {
+            m_running = true;
+            while (m_running)
+            {
+                wait();
+                while (m_count > 0)
+                {
+                    --m_count;
+                    std::cout << "+";
+                    m_handler(args...);
+                }
+            }
+        });
+    }
+
+    void stop(bool clear_queued_events = true)
+    {
+        m_running = false;
+        // Clear the events if we dont want them
+        if (clear_queued_events)
+        {
+            m_count = 0;
+        }
+        m_cv.notify_one();
+        threading::join_thread(m_q_thread);
+    }
+
+private:
+    void wait()
+    {
+        if (m_running)
+        {
+            std::mutex mtx;
+            std::unique_lock<std::mutex> lk(mtx);
+            m_cv.wait(lk);
+        }
+    }
+
+    std::condition_variable m_cv;
+    std::thread m_q_thread;
+    std::atomic<int> m_count{0};
+    std::atomic<bool> m_running {false};
+    Functor m_handler;
+};
+
 /// @brief timer class to call a callback function after a specified amount of time has expired
 class timer
 {
 private:
-    template <typename Functor>
-    class timer_queue
-    {
-    public:
-        timer_queue(const Functor &handler) : m_handler(handler)
-        {
-            m_q_thread = std::thread([this]
-            {
-                m_running = true;
-                while (m_running)
-                {
-                    wait();
-                    while (m_count > 0)
-                    {
-                        --m_count;
-                        m_handler();
-                    }
-                }
-            });
-        }
-
-        ~timer_queue()
-        {
-            // On normal destruct wait for all the queued events (this is the default)
-            // not sure if really want this, but a user of the class can always forcefully
-            // stop this with the stop() function to clear the queued events. Also this only
-            // occurs if the handler function is taking longer then the timer interval.
-            stop();
-        }
-
-        // Add item to queue and then notify the thread
-        void add()
-        {
-            ++m_count;
-            m_cv.notify_one();
-        }
-
-        void stop(bool clear_queued_events = true)
-        {
-            m_running = false;
-            // Clear the events if we dont want them
-            if (clear_queued_events)
-            {
-                m_count = 0;
-            }
-            m_cv.notify_one();
-            threading::join_thread(m_q_thread);
-        }
-
-    private:
-        void wait()
-        {
-            if (m_running)
-            {
-                std::mutex mtx;
-                std::unique_lock<std::mutex> lk(mtx);
-                m_cv.wait(lk);
-            }
-        }
-
-        std::condition_variable m_cv;
-        std::thread m_q_thread;
-        std::atomic<int> m_count{0};
-        std::atomic<bool> m_running {false};
-        std::function<void()> m_handler;
-    };
-
     /// the timer thread
     std::thread timer_thread;
     /// atomic bool used to stop the timer
-    std::atomic<bool> timer_running;
+    std::atomic<bool> timer_running {false};
     /// condition var mutex
     std::mutex mtx;
     /// condition var used for waiting
@@ -186,18 +192,26 @@ public:
     /// @brief Starts the timer
     /// @param timeout_ms the amount of time until the timer expires in milliseconds
     /// @param timeout_handler the function callback which is called if/when the timer expires
+    /// @param use_handler_thread Run timer handler function in separate thread. This can be used
+    ///        if the handlers can take longer then the timer interval to stack events up. Probably
+    ///        overkill for most useage.
     template <typename Functor>
-    void start(unsigned int timeout_ms, const Functor &timeout_handler, bool oneshot = true)
+    void start(unsigned int timeout_ms, const Functor &timeout_handler, bool oneshot = true, bool use_handler_thread = false)
     {
-        /// Start the
+        /// Set the use hanl
+        /// Start the timer
         timer_running = true;
-        timer_thread = std::thread([timeout_handler, timeout_ms, oneshot, this]()
+        timer_thread = std::thread([timeout_handler, use_handler_thread, timeout_ms, oneshot, this]()
         {
             // For keeping track of time
             stopwatch sw;
             // Queues events and runs a thread to call the timeout handler repeatedly until the queue is empty
             // frees the timer from being blocked running the handler
             timer_queue<Functor> m_timer_queue(timeout_handler);
+            if (use_handler_thread)
+            {
+                m_timer_queue.start();
+            }
             // Timer interval
             uint64_t interval_ms = static_cast<uint64_t>(timeout_ms);
             // Keep a running total of the time required time to wait
@@ -225,14 +239,27 @@ public:
                     }
                 }
                 // Timer expired - queue a call to the handler
-                m_timer_queue.add();
+                if (use_handler_thread)
+                {
+                    // Add to thread queue
+                    m_timer_queue.add();
+                }
+                else
+                {
+                    // Run handler directly
+                    timeout_handler();
+                }
+
 
                 // if oneshot stop the timer
                 if (oneshot)
                 {
-                    // Don't clear any queued events, for oneshot there will only be one and we want to make sure
-                    // we don't clear it
-                    m_timer_queue.stop(false);
+                    if (use_handler_thread)
+                    {
+                        // Don't clear any queued events, for oneshot there will only be one and we want to make sure
+                        // we don't clear it
+                        m_timer_queue.stop(false);
+                    }
                     return;
                 }
             }

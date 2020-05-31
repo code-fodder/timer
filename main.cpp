@@ -12,7 +12,7 @@ public:
     {
         m_count = 0;
         m_delay_ms = delay_ms;
-        m_tmr.start(time_ms, [this]{tick();}, oneshot);
+        m_tmr.start(time_ms, [this]{tick('.');}, oneshot);
         m_sw.restart();
     }
 
@@ -27,9 +27,9 @@ public:
     }
 
 private:
-    void tick()
+    void tick(char chr)
     {
-        std::cout <<  "." << std::flush;
+        std::cout << chr << std::flush;
         SLEEP_MSEC(m_delay_ms);
     }
 
@@ -44,7 +44,6 @@ bool test_timer()
     int64_t time_deviation_ms = 0;
     int64_t time_test_value = 0;
     timer_test test;
-
 
     std::cout << "\nOneshot timer interrupt test";
     time_test_value = 100;
