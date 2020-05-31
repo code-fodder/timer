@@ -190,54 +190,43 @@ public:
     ~timer() { stop(); }
 
     /// @brief Starts the timer
-    /// @param timeout_ms the amount of time until the timer expires in milliseconds
+    /// @param interval_ms the amount of time until the timer expires in milliseconds
     /// @param timeout_handler the function callback which is called if/when the timer expires
     /// @param use_handler_thread Run timer handler function in separate thread. This can be used
     ///        if the handlers can take longer then the timer interval to stack events up. Probably
     ///        overkill for most useage.
     template <typename Functor>
-    void start(unsigned int timeout_ms, const Functor &timeout_handler, bool oneshot = true, bool use_handler_thread = false)
+    void start(unsigned int interval_ms, const Functor &timeout_handler, bool oneshot = true, bool use_handler_thread = false)
     {
-        /// Set the use hanl
         /// Start the timer
         timer_running = true;
-        timer_thread = std::thread([timeout_handler, use_handler_thread, timeout_ms, oneshot, this]()
+        timer_thread = std::thread([timeout_handler, use_handler_thread, interval_ms, oneshot, this]()
         {
-            // For keeping track of time
-            stopwatch sw;
             // Queues events and runs a thread to call the timeout handler repeatedly until the queue is empty
             // frees the timer from being blocked running the handler
             timer_queue<Functor> m_timer_queue(timeout_handler);
+            // Only start the handler thread if required
             if (use_handler_thread)
             {
                 m_timer_queue.start();
             }
-            // Timer interval
-            uint64_t interval_ms = static_cast<uint64_t>(timeout_ms);
-            // Keep a running total of the time required time to wait
-            uint64_t total_time_ms = 0;
+
+            // Store the start time, and increment this as needed. Using a time point instead of
+            // a duration makes calculating the next time trivial and there is no need to worry about
+            // negative durations if the handler took longer then the timeout interval
+            std::chrono::steady_clock::time_point next_time = std::chrono::steady_clock::now();
             // Keep running the timer until it is no longer running
             while (timer_running)
             {
-                // increment the total time required to wait by the interval
-                total_time_ms += interval_ms;
-                // Keep waiting until we have reached the elapsed time (in case of spurious wake)
-                // or the timer is stopped. Note the wait_for will handle timer_running = false
-                // so we don't need to check that in this loop
-                // If the elapsed time is greater then total time then timeout immediately. This could happen if
-                // the timeout handler takes longer then the timeout interval
-                while (sw.get_elapsed_time() < total_time_ms)
+                std::unique_lock<std::mutex> lock{mtx};
+                // Calculate the time we need to wait until so that we are not losing time
+                next_time += std::chrono::milliseconds(interval_ms);
+                // returns true if timer was stopped, returns false if timer expired
+                if (cv.wait_until(lock, next_time, [this] { return (bool)!timer_running; }))
                 {
-                    std::unique_lock<std::mutex> lock{mtx};
-                    // Re-calculate the time we need to wait for so that we are not losing time
-                    // returns true if timer was stopped, returns false if timer expired
-                    if (cv.wait_for(lock,
-                                    std::chrono::milliseconds{total_time_ms - sw.get_elapsed_time()},
-                                    [this] { return (bool)!timer_running; }))
-                    {
-                        return;
-                    }
+                    return;
                 }
+
                 // Timer expired - queue a call to the handler
                 if (use_handler_thread)
                 {
@@ -249,7 +238,6 @@ public:
                     // Run handler directly
                     timeout_handler();
                 }
-
 
                 // if oneshot stop the timer
                 if (oneshot)
