@@ -103,14 +103,9 @@ class timer_queue
 {
 public:
     timer_queue(const Functor &handler) : m_handler(handler) { }
-    ~timer_queue()
-    {
-        // On normal destruct wait for all the queued events (this is the default)
-        // not sure if really want this, but a user of the class can always forcefully
-        // stop this with the stop() function to clear the queued events. Also this only
-        // occurs if the handler function is taking longer then the timer interval.
-        stop();
-    }
+    // On normal destruct wait for all the queued events (default). If you want to
+    // stop asap and not wait for the queued functions, call stop(false); in your code
+    ~timer_queue() { stop(); }
 
     // Add item to queue and then notify the thread
     void add()
@@ -133,7 +128,6 @@ public:
                 while (m_count > 0)
                 {
                     --m_count;
-                    std::cout << "+";
                     m_handler(args...);
                 }
             }
@@ -186,17 +180,49 @@ private:
 public:
     /// @brief Construct a new timer object
     timer() = default;
+
+    // Move constructor
+    timer(timer&& obj)
+        : timer_thread(std::move(obj.timer_thread))
+        , timer_running(obj.timer_running.load())
+        , mtx()
+        , cv()
+    {
+        std::cout << "move c'tor\n";
+    }
+
+    // Move assignment
+    timer& operator=(timer&& obj)
+    {
+        threading::join_thread(timer_thread);
+        timer_thread = std::move(obj.timer_thread);
+        return *this;
+    }
+
+    // Non-copyable due to thread. We could make it copyable, but we don't really want that, so
+    // make this move-only
+    timer(timer& obj) = delete;
+    timer& operator=(timer& obj) = delete;
+
     /// @brief Destroy the timer object - ensures the timer has stopped
-    ~timer() { stop(); }
+    ~timer()
+    {
+        std::cout << "~timer()\n";
+        stop();
+    }
 
     /// @brief Starts the timer
     /// @param interval_ms the amount of time until the timer expires in milliseconds
     /// @param timeout_handler the function callback which is called if/when the timer expires
     /// @param use_handler_thread Run timer handler function in separate thread. This can be used
     ///        if the handlers can take longer then the timer interval to stack events up. Probably
-    ///        overkill for most useage.
+    ///        overkill for most useage since it creates another thread.
     template <typename Functor>
-    void start(unsigned int interval_ms, const Functor &timeout_handler, bool oneshot = true, bool use_handler_thread = false)
+    void start(
+        unsigned int interval_ms,
+        const Functor &timeout_handler,
+        bool oneshot = true,
+        bool use_handler_thread = false)
     {
         /// Start the timer
         timer_running = true;
@@ -262,10 +288,7 @@ public:
         // wake the timer
         cv.notify_all();
         // Join the thread
-        if (timer_thread.joinable())
-        {
-            timer_thread.join();
-        }
+        threading::join_thread(timer_thread);
     }
 };
 
