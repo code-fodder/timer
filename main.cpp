@@ -180,35 +180,28 @@ bool test_gate()
 
 int main()
 {
-    // // Run timer tests
-    // if (!test_timer())
-    // {
-    //     return 1;
-    // }
+    // Run timer tests
+    if (!test_timer())
+    {
+        return 1;
+    }
 
-    // // Run gate test since it users timer
-    // if (!test_gate())
-    // {
-    //     return 1;
-    // }
+    // Run gate test since it users timer
+    if (!test_gate())
+    {
+        return 1;
+    }
 
     // test lots of timers
     constexpr size_t num = 10;
-    std::vector<thread_sync::timer> timers;
-
+    std::deque<thread_sync::timer> timers;
     for (size_t i = 0; i < num; i++)
     {
         thread_sync::timer tmr;
         timers.emplace_back(std::move(tmr));
         timers[i].start(500, [i]{ std::cout << i << std::flush; }, false);
     }
-
-    for (size_t i = 0; i < num; i++)
-    {
-        //timers[i].start(500, [i]{ std::cout << i << std::flush; }, false);
-    }
-
-    SLEEP_MSEC(3000);
+    SLEEP_MSEC(5000);
 
     std::cout << "\n==========================\n";
     std::cout << "All tests complete\n";
